@@ -68,33 +68,30 @@ export default function DebtCard({ debt, onUpdate }: Props) {
       style={{ backgroundColor: 'var(--color-card)', border: '1px solid var(--color-border)' }}
     >
       {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start justify-between gap-2">
           <h3 className="font-semibold text-base" style={{ color: 'var(--color-text)' }}>
             {debt.name}
           </h3>
-          {debt.payoff_target_date && (
-            <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>
-              Target: {debt.payoff_target_date}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
           <span
-            className="text-xs font-medium px-2 py-0.5 rounded-full"
-            style={{
-              backgroundColor: `${priority.color}18`,
-              color: priority.color,
-            }}
-          >
-            {priority.label}
-          </span>
-          <span
-            className="text-xs font-medium px-2 py-0.5 rounded-full"
+            className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0"
             style={{ backgroundColor: '#f5f5f3', color: 'var(--color-text-muted)' }}
           >
             {debt.apr_is_estimate ? '~' : ''}{debt.apr}% APR
           </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="text-xs font-medium px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: `${priority.color}18`, color: priority.color }}
+          >
+            {priority.label}
+          </span>
+          {debt.payoff_target_date && (
+            <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              Target: {debt.payoff_target_date}
+            </span>
+          )}
         </div>
       </div>
 

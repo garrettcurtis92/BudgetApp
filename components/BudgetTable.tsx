@@ -71,7 +71,6 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     setSaving(true)
     const supabase = createClient()
 
-    // Collect all edited actuals
     const upserts = Object.entries(edits)
       .filter(([key]) => key.endsWith(`-${month}-${year}`))
       .map(([key, value]) => {
@@ -90,24 +89,19 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
         .from('monthly_actuals')
         .upsert(upserts, { onConflict: 'category_id,month,year' })
 
-      // Update local actuals state
       setActuals(prev => {
         const updated = [...prev]
         for (const u of upserts) {
           const idx = updated.findIndex(
             a => a.category_id === u.category_id && a.month === u.month && a.year === u.year
           )
-          if (idx >= 0) {
-            updated[idx] = { ...updated[idx], actual_amount: u.actual_amount }
-          } else {
-            updated.push({ id: '', ...u })
-          }
+          if (idx >= 0) updated[idx] = { ...updated[idx], actual_amount: u.actual_amount }
+          else updated.push({ id: '', ...u })
         }
         return updated
       })
     }
 
-    // Calculate and save rollovers for variable categories
     const variableCategories = initialCategories.filter(c => c.is_variable)
     const nextMonthNum = month === 12 ? 1 : month + 1
     const nextYearNum = month === 12 ? year + 1 : year
@@ -116,13 +110,11 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
       const effective = getEffectiveBudget(cat, rollovers, month, year)
       const actual = parseFloat(edits[getEditKey(cat.id)] ?? '') ||
         getActualAmount(cat.id, actuals, month, year)
-      const rolloverAmount = calculateRollover(effective, actual)
-
       return {
         category_id: cat.id,
         month: nextMonthNum,
         year: nextYearNum,
-        rollover_amount: rolloverAmount,
+        rollover_amount: calculateRollover(effective, actual),
       }
     })
 
@@ -158,44 +150,41 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     categories: initialCategories.filter(c => c.group_name === group),
   })).filter(g => g.categories.length > 0)
 
-  const totalBudgeted = initialCategories.reduce(
-    (sum, c) => sum + getEffectiveBudget(c, rollovers, month, year), 0
-  )
-  const totalActual = initialCategories.reduce(
-    (sum, c) => sum + getActualAmount(c.id, actuals, month, year), 0
-  )
   const totalActualEdited = initialCategories.reduce((sum, c) => {
     const raw = edits[getEditKey(c.id)]
     const val = raw !== undefined ? (parseFloat(raw) || 0) : getActualAmount(c.id, actuals, month, year)
     return sum + val
   }, 0)
+  const totalBudgeted = initialCategories.reduce(
+    (sum, c) => sum + getEffectiveBudget(c, rollovers, month, year), 0
+  )
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h2
           className="text-2xl"
           style={{ fontFamily: 'var(--font-dm-serif), serif', color: 'var(--color-text)' }}
         >
-          Monthly Budget
+          Budget
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button
             onClick={prevMonth}
-            className="p-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+            className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
             style={{ color: 'var(--color-text-muted)' }}
             onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f5f5f3')}
             onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             <ChevronLeft size={18} />
           </button>
-          <span className="text-sm font-medium min-w-28 text-center">
+          <span className="text-sm font-medium w-28 text-center">
             {formatMonthYear(month, year)}
           </span>
           <button
             onClick={nextMonth}
-            className="p-1.5 rounded-lg transition-all duration-200 cursor-pointer"
+            className="p-2 rounded-lg transition-all duration-200 cursor-pointer"
             style={{ color: 'var(--color-text-muted)' }}
             onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f5f5f3')}
             onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
@@ -205,7 +194,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-1.5 rounded-lg text-sm font-semibold text-white transition-all duration-200 cursor-pointer disabled:opacity-60"
+            className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-200 cursor-pointer disabled:opacity-60"
             style={{ backgroundColor: savedMsg ? 'var(--color-green)' : 'var(--color-navy)' }}
           >
             {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
@@ -213,41 +202,29 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
         </div>
       </div>
 
-      {/* Table */}
-      <div
-        className="rounded-xl overflow-hidden"
-        style={{ border: '1px solid var(--color-border)' }}
-      >
-        {/* Column headers */}
-        <div
-          className="grid grid-cols-12 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide"
-          style={{
-            backgroundColor: '#f5f5f3',
-            color: 'var(--color-text-muted)',
-            borderBottom: '1px solid var(--color-border)',
-          }}
-        >
-          <div className="col-span-5">Category</div>
-          <div className="col-span-2 text-right">Budgeted</div>
-          <div className="col-span-2 text-right">Actual</div>
-          <div className="col-span-2 text-right">Variance</div>
-          <div className="col-span-1 text-right">↩</div>
-        </div>
+      {/* Budget groups */}
+      {grouped.map(({ group, categories }) => (
+        <div key={group} className="flex flex-col gap-2">
+          {/* Group label */}
+          <p className="text-xs font-semibold uppercase tracking-wide px-1" style={{ color: 'var(--color-text-muted)' }}>
+            {group}
+          </p>
 
-        {grouped.map(({ group, categories }) => (
-          <div key={group}>
-            {/* Group header */}
-            <div
-              className="px-4 py-2 text-xs font-semibold uppercase tracking-wide"
-              style={{
-                backgroundColor: '#fafaf8',
-                color: 'var(--color-text-muted)',
-                borderBottom: '1px solid var(--color-border)',
-              }}
-            >
-              {group}
-            </div>
-            {/* Rows */}
+          {/* Desktop table header — hidden on mobile */}
+          <div
+            className="hidden md:grid grid-cols-12 px-4 py-2 text-xs font-semibold uppercase tracking-wide rounded-lg"
+            style={{ backgroundColor: '#f5f5f3', color: 'var(--color-text-muted)' }}
+          >
+            <div className="col-span-5">Category</div>
+            <div className="col-span-2 text-right">Budgeted</div>
+            <div className="col-span-2 text-right">Actual</div>
+            <div className="col-span-3 text-right">Variance</div>
+          </div>
+
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--color-border)' }}
+          >
             {categories.map((cat, idx) => {
               const effective = getEffectiveBudget(cat, rollovers, month, year)
               const rolloverAmt = getRolloverAmount(cat.id, rollovers, month, year)
@@ -261,88 +238,119 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
               return (
                 <div
                   key={cat.id}
-                  className="grid grid-cols-12 px-4 py-3 items-center"
                   style={{
                     backgroundColor: 'var(--color-card)',
                     borderBottom: isLast ? 'none' : '1px solid var(--color-border)',
                   }}
                 >
-                  {/* Category name */}
-                  <div className="col-span-5">
-                    <span className="text-sm" style={{ color: 'var(--color-text)' }}>
-                      {cat.name}
-                    </span>
-                  </div>
-
-                  {/* Budgeted */}
-                  <div className="col-span-2 text-right">
-                    <span className="text-sm" style={{ color: 'var(--color-text)' }}>
-                      {formatCurrency(effective)}
-                    </span>
-                    {cat.is_variable && rolloverAmt > 0 && (
-                      <div className="text-xs" style={{ color: 'var(--color-green)' }}>
-                        +{formatCurrency(rolloverAmt)} rollover
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actual input */}
-                  <div className="col-span-2 flex justify-end">
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={getCurrentActual(cat.id)}
-                      onChange={e => handleActualChange(cat.id, e.target.value)}
-                      className="w-24 text-right rounded px-2 py-1 text-sm outline-none transition-all duration-200"
-                      style={{
-                        border: '1px solid var(--color-border)',
-                        backgroundColor: 'var(--color-bg)',
-                        color: 'var(--color-text)',
-                      }}
-                      onFocus={e => (e.target.style.borderColor = 'var(--color-navy)')}
-                      onBlur={e => (e.target.style.borderColor = 'var(--color-border)')}
-                    />
-                  </div>
-
-                  {/* Variance */}
-                  <div className="col-span-2 text-right">
-                    <span
-                      className="text-sm font-medium"
-                      style={{
-                        color: variance >= 0 ? 'var(--color-green)' : 'var(--color-red)',
-                      }}
-                    >
-                      {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
-                    </span>
-                  </div>
-
-                  {/* Rollover indicator */}
-                  <div className="col-span-1 text-right">
-                    {cat.is_variable && (
-                      <span className="text-xs" style={{ color: 'var(--color-navy)' }}>
-                        ✓
+                  {/* Mobile layout */}
+                  <div className="md:hidden px-4 py-3 flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                        {cat.name}
                       </span>
-                    )}
+                      {cat.is_variable && (
+                        <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#eef4fb', color: 'var(--color-navy)' }}>
+                          rolls over
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1">
+                        <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Budget</p>
+                        <p className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                          {formatCurrency(effective)}
+                        </p>
+                        {cat.is_variable && rolloverAmt > 0 && (
+                          <p className="text-xs" style={{ color: 'var(--color-green)' }}>
+                            +{formatCurrency(rolloverAmt)} rollover
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>Actual</p>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={getCurrentActual(cat.id)}
+                          onChange={e => handleActualChange(cat.id, e.target.value)}
+                          className="w-full rounded-lg px-3 py-2 text-sm outline-none transition-all duration-200"
+                          style={{
+                            border: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-bg)',
+                            color: 'var(--color-text)',
+                          }}
+                          onFocus={e => (e.target.style.borderColor = 'var(--color-navy)')}
+                          onBlur={e => (e.target.style.borderColor = 'var(--color-border)')}
+                        />
+                      </div>
+                      <div className="flex-1 text-right">
+                        <p className="text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>Left</p>
+                        <p
+                          className="text-sm font-semibold"
+                          style={{ color: variance >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
+                        >
+                          {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Desktop layout */}
+                  <div className="hidden md:grid grid-cols-12 px-4 py-3 items-center">
+                    <div className="col-span-5">
+                      <span className="text-sm" style={{ color: 'var(--color-text)' }}>{cat.name}</span>
+                    </div>
+                    <div className="col-span-2 text-right">
+                      <span className="text-sm" style={{ color: 'var(--color-text)' }}>{formatCurrency(effective)}</span>
+                      {cat.is_variable && rolloverAmt > 0 && (
+                        <div className="text-xs" style={{ color: 'var(--color-green)' }}>+{formatCurrency(rolloverAmt)}</div>
+                      )}
+                    </div>
+                    <div className="col-span-2 flex justify-end">
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={getCurrentActual(cat.id)}
+                        onChange={e => handleActualChange(cat.id, e.target.value)}
+                        className="w-24 text-right rounded px-2 py-1 text-sm outline-none transition-all duration-200"
+                        style={{
+                          border: '1px solid var(--color-border)',
+                          backgroundColor: 'var(--color-bg)',
+                          color: 'var(--color-text)',
+                        }}
+                        onFocus={e => (e.target.style.borderColor = 'var(--color-navy)')}
+                        onBlur={e => (e.target.style.borderColor = 'var(--color-border)')}
+                      />
+                    </div>
+                    <div className="col-span-3 text-right">
+                      <span
+                        className="text-sm font-medium"
+                        style={{ color: variance >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
+                      >
+                        {variance >= 0 ? '+' : ''}{formatCurrency(variance)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )
             })}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
 
       {/* Month Summary */}
       <div
         className="rounded-xl p-5"
         style={{ backgroundColor: 'var(--color-card)', border: '1px solid var(--color-border)' }}
       >
-        <h3
-          className="text-base font-semibold mb-4"
-          style={{ color: 'var(--color-text)' }}
-        >
+        <h3 className="text-base font-semibold mb-4" style={{ color: 'var(--color-text)' }}>
           {formatMonthYear(month, year)} Summary
         </h3>
         <div className="flex flex-col gap-2">
@@ -363,9 +371,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
             <span className="text-sm font-semibold">Net remaining</span>
             <span
               className="text-sm font-semibold"
-              style={{
-                color: INCOME_TOTAL - totalActualEdited >= 0 ? 'var(--color-green)' : 'var(--color-red)',
-              }}
+              style={{ color: INCOME_TOTAL - totalActualEdited >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
             >
               {formatCurrency(INCOME_TOTAL - totalActualEdited)}
             </span>
