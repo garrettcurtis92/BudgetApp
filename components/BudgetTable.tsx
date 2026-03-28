@@ -267,7 +267,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
         </button>
         <button
           onClick={e => startBudgetEdit(cat, e)}
-          className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 cursor-pointer"
+          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 cursor-pointer"
           style={{ color: 'var(--color-text-muted)' }}
           title="Edit budget amount"
         >
