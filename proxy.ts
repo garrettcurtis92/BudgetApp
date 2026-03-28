@@ -1,19 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Auth is handled at the layout level via Supabase server client.
+// Proxy only passes requests through.
 export function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl
-
-  // Check for any Supabase auth cookie (named sb-[project-ref]-auth-token or chunked)
-  const hasSession = request.cookies.getAll().some(c => c.name.startsWith('sb-'))
-
-  if (!hasSession && pathname !== '/') {
-    return NextResponse.redirect(new URL('/', request.url))
-  }
-
-  if (hasSession && pathname === '/') {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
-  }
-
   return NextResponse.next()
 }
 
