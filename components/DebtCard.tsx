@@ -35,12 +35,15 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
   const [input, setInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [appliedBreakdown, setAppliedBreakdown] = useState<{ interest: number; principal: number } | null>(null)
 
   const pctPaid = Math.round(
     ((debt.original_balance - debt.current_balance) / debt.original_balance) * 100
   )
   const monthlyInterest = (debt.current_balance * (debt.apr / 100)) / 12
   const totalPayment = debt.min_payment + debt.extra_payment
+  const principalPaid = Math.max(0, totalPayment - monthlyInterest)
   const priority = getPriorityLabel(rank)
 
   async function handleUpdate() {
@@ -64,6 +67,27 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  async function handleApplyPayment() {
+    setApplying(true)
+    const newBalance = Math.max(0, Math.round((debt.current_balance - principalPaid) * 100) / 100)
+    const isPaidOff = newBalance === 0
+
+    const supabase = createClient()
+    await supabase
+      .from('debts')
+      .update({
+        current_balance: newBalance,
+        is_paid_off: isPaidOff,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', debt.id)
+
+    onUpdate(debt.id, newBalance, isPaidOff)
+    setApplying(false)
+    setAppliedBreakdown({ interest: monthlyInterest, principal: principalPaid })
+    setTimeout(() => setAppliedBreakdown(null), 4000)
   }
 
   return (
@@ -120,7 +144,7 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
         {[
           { label: 'Monthly interest', value: formatCurrency(monthlyInterest) },
           { label: 'Total payment', value: formatCurrency(totalPayment) },
-          { label: 'Extra payment', value: formatCurrency(debt.extra_payment) },
+          { label: 'To principal', value: formatCurrency(principalPaid) },
         ].map(({ label, value }) => (
           <div
             key={label}
@@ -133,14 +157,40 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
         ))}
       </div>
 
-      {/* Update balance */}
+      {/* Apply payment feedback */}
+      {appliedBreakdown && (
+        <div
+          className="rounded-lg px-3 py-2 text-xs flex gap-3"
+          style={{ backgroundColor: '#f0faf5', color: 'var(--color-green)' }}
+        >
+          <span>Payment applied</span>
+          <span style={{ color: 'var(--color-text-muted)' }}>
+            {formatCurrency(appliedBreakdown.interest)} interest · {formatCurrency(appliedBreakdown.principal)} principal
+          </span>
+        </div>
+      )}
+
+      {/* Apply payment button */}
+      <button
+        onClick={handleApplyPayment}
+        disabled={applying || totalPayment === 0}
+        className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer disabled:opacity-50"
+        style={{
+          backgroundColor: '#eef4fb',
+          color: 'var(--color-navy)',
+        }}
+      >
+        {applying ? 'Applying…' : `Apply payment (${formatCurrency(totalPayment)})`}
+      </button>
+
+      {/* Manual balance update */}
       <div className="flex gap-2">
         <input
           type="number"
           inputMode="decimal"
           min="0"
           step="0.01"
-          placeholder="New balance"
+          placeholder="Override balance"
           value={input}
           onChange={e => setInput(e.target.value)}
           className="flex-1 rounded-lg px-3 py-2 text-sm outline-none transition-all duration-200"
@@ -159,7 +209,7 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
           className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-200 cursor-pointer disabled:opacity-50"
           style={{ backgroundColor: saved ? 'var(--color-green)' : 'var(--color-navy)' }}
         >
-          {saving ? '…' : saved ? 'Saved!' : 'Update'}
+          {saving ? '…' : saved ? 'Saved!' : 'Set'}
         </button>
       </div>
     </div>
