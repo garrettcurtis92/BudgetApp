@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, X, ShoppingCart, Fuel, UtensilsCrossed, Star } from 'lucide-react'
+import { ArrowLeft, X, ShoppingCart, Fuel, UtensilsCrossed, Star, Heart } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, formatMonthYear } from '@/lib/formatters'
 
@@ -51,6 +51,7 @@ const CARD_CONFIGS: CardConfig[] = [
   { name: 'Fuel', displayName: 'Fuel', icon: <Fuel size={14} strokeWidth={2} />, accentColor: 'var(--color-navy)' },
   { name: 'Dining Out', displayName: 'Dining', icon: <UtensilsCrossed size={14} strokeWidth={2} />, accentColor: 'var(--color-green)' },
   { name: 'Discretionary / fun money', displayName: 'Discretionary', icon: <Star size={14} strokeWidth={2} />, accentColor: 'var(--color-purple)' },
+  { name: 'Blessing Fund', displayName: 'Blessing Fund', icon: <Heart size={14} strokeWidth={2} />, accentColor: 'var(--color-green)' },
 ]
 
 interface Props {
