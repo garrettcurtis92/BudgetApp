@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase-server'
 import QuickAdd from '@/components/QuickAdd'
 
-const QUICK_ADD_CATEGORIES = ['Groceries', 'Fuel', 'Dining Out', 'Discretionary / fun money']
+const QUICK_ADD_CATEGORIES = ['Groceries', 'Fuel', 'Dining Out', 'Discretionary / fun money', 'Blessing Fund']
 
 export default async function QuickAddPage() {
   const supabase = await createClient()
