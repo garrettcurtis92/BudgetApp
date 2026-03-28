@@ -8,6 +8,7 @@ import {
   BudgetCategory,
   MonthlyActual,
   Rollover,
+  BudgetOverride,
   getEffectiveBudget,
   getActualAmount,
   calculateVariance,
@@ -30,15 +31,17 @@ interface Props {
   initialCategories: BudgetCategory[]
   initialActuals: MonthlyActual[]
   initialRollovers: Rollover[]
+  initialOverrides: BudgetOverride[]
 }
 
-export default function BudgetTable({ initialCategories, initialActuals, initialRollovers }: Props) {
+export default function BudgetTable({ initialCategories, initialActuals, initialRollovers, initialOverrides }: Props) {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [categories, setCategories] = useState<BudgetCategory[]>(initialCategories)
   const [actuals, setActuals] = useState<MonthlyActual[]>(initialActuals)
   const [rollovers, setRollovers] = useState<Rollover[]>(initialRollovers)
+  const [overrides, setOverrides] = useState<BudgetOverride[]>(initialOverrides)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
@@ -78,17 +81,20 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
 
   // Tap budget amount → autofill actual input
   function handleAutofill(cat: BudgetCategory) {
-    const effective = getEffectiveBudget(cat, rollovers, month, year)
+    const effective = getEffectiveBudget(cat, rollovers, month, year, overrides)
     setEdits(prev => ({ ...prev, [getEditKey(cat.id)]: String(effective) }))
     setAutofilledId(cat.id)
     setTimeout(() => setAutofilledId(null), 800)
   }
 
-  // Start inline budget edit
+  // Start inline budget edit — seed from override for this month if one exists
   function startBudgetEdit(cat: BudgetCategory, e: React.MouseEvent) {
     e.stopPropagation()
+    const override = overrides.find(
+      o => o.category_id === cat.id && o.month === month && o.year === year
+    )
     setEditingBudgetId(cat.id)
-    setBudgetEditValue(String(cat.budgeted_amount))
+    setBudgetEditValue(String(override?.budgeted_amount ?? cat.budgeted_amount))
     setTimeout(() => budgetInputRef.current?.select(), 50)
   }
 
@@ -100,14 +106,28 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     }
 
     const supabase = createClient()
-    await supabase
-      .from('budget_categories')
-      .update({ budgeted_amount: newAmount })
-      .eq('id', cat.id)
+    const { data: upserted } = await supabase
+      .from('budget_overrides')
+      .upsert(
+        { category_id: cat.id, month, year, budgeted_amount: newAmount },
+        { onConflict: 'category_id,month,year' }
+      )
+      .select()
+      .single()
 
-    setCategories(prev =>
-      prev.map(c => c.id === cat.id ? { ...c, budgeted_amount: newAmount } : c)
-    )
+    if (upserted) {
+      setOverrides(prev => {
+        const idx = prev.findIndex(
+          o => o.category_id === cat.id && o.month === month && o.year === year
+        )
+        if (idx >= 0) {
+          const updated = [...prev]
+          updated[idx] = upserted
+          return updated
+        }
+        return [...prev, upserted]
+      })
+    }
     setEditingBudgetId(null)
   }
 
@@ -156,7 +176,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     const nextYearNum = month === 12 ? year + 1 : year
 
     const rolloverUpserts = variableCategories.map(cat => {
-      const effective = getEffectiveBudget(cat, rollovers, month, year)
+      const effective = getEffectiveBudget(cat, rollovers, month, year, overrides)
       const actual = parseFloat(edits[getEditKey(cat.id)] ?? '') ||
         getActualAmount(cat.id, actuals, month, year)
       return {
@@ -210,7 +230,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
 
   // Reusable budget amount cell (shared by mobile + desktop)
   function BudgetAmount({ cat }: { cat: BudgetCategory }) {
-    const effective = getEffectiveBudget(cat, rollovers, month, year)
+    const effective = getEffectiveBudget(cat, rollovers, month, year, overrides)
     const rolloverAmt = getRolloverAmount(cat.id, rollovers, month, year)
     const isEditing = editingBudgetId === cat.id
     const isAutofilled = autofilledId === cat.id
@@ -343,7 +363,7 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
             style={{ border: '1px solid var(--color-border)' }}
           >
             {groupCats.map((cat, idx) => {
-              const effective = getEffectiveBudget(cat, rollovers, month, year)
+              const effective = getEffectiveBudget(cat, rollovers, month, year, overrides)
               const rawActual = edits[getEditKey(cat.id)]
               const actualVal = rawActual !== undefined
                 ? (parseFloat(rawActual) || 0)

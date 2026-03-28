@@ -24,16 +24,38 @@ export interface Rollover {
   rollover_amount: number
 }
 
+export interface BudgetOverride {
+  id: string
+  category_id: string
+  month: number
+  year: number
+  budgeted_amount: number
+}
+
+export function getBaseBudget(
+  category: BudgetCategory,
+  overrides: BudgetOverride[],
+  month: number,
+  year: number
+): number {
+  const override = overrides.find(
+    (o) => o.category_id === category.id && o.month === month && o.year === year
+  )
+  return override?.budgeted_amount ?? category.budgeted_amount
+}
+
 export function getEffectiveBudget(
   category: BudgetCategory,
   rollovers: Rollover[],
   month: number,
-  year: number
+  year: number,
+  overrides: BudgetOverride[] = []
 ): number {
+  const base = getBaseBudget(category, overrides, month, year)
   const rollover = rollovers.find(
     (r) => r.category_id === category.id && r.month === month && r.year === year
   )
-  return category.budgeted_amount + (rollover?.rollover_amount ?? 0)
+  return base + (rollover?.rollover_amount ?? 0)
 }
 
 export function getActualAmount(
