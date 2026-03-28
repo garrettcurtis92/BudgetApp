@@ -19,20 +19,19 @@ interface Debt {
   is_paid_off: boolean
 }
 
-const PRIORITY_LABELS: Record<number, { label: string; color: string }> = {
-  1: { label: 'Pay off immediately', color: 'var(--color-red)' },
-  2: { label: 'Primary target', color: 'var(--color-amber)' },
-  3: { label: 'After BofA', color: 'var(--color-navy)' },
-  4: { label: 'After Card 1', color: 'var(--color-navy)' },
-  5: { label: 'Parallel', color: 'var(--color-text-muted)' },
+function getPriorityLabel(rank: number): { label: string; color: string } {
+  if (rank === 1) return { label: 'Pay off now', color: 'var(--color-red)' }
+  if (rank === 2) return { label: 'Primary target', color: 'var(--color-amber)' }
+  return { label: 'Up next', color: 'var(--color-navy)' }
 }
 
 interface Props {
   debt: Debt
-  onUpdate: (id: string, newBalance: number) => void
+  rank: number
+  onUpdate: (id: string, newBalance: number, isPaidOff: boolean) => void
 }
 
-export default function DebtCard({ debt, onUpdate }: Props) {
+export default function DebtCard({ debt, rank, onUpdate }: Props) {
   const [input, setInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -42,20 +41,25 @@ export default function DebtCard({ debt, onUpdate }: Props) {
   )
   const monthlyInterest = (debt.current_balance * (debt.apr / 100)) / 12
   const totalPayment = debt.min_payment + debt.extra_payment
-  const priority = PRIORITY_LABELS[debt.priority] ?? { label: `Priority ${debt.priority}`, color: 'var(--color-text-muted)' }
+  const priority = getPriorityLabel(rank)
 
   async function handleUpdate() {
     const newBalance = parseFloat(input)
     if (isNaN(newBalance) || newBalance < 0) return
     setSaving(true)
 
+    const isPaidOff = newBalance === 0
     const supabase = createClient()
     await supabase
       .from('debts')
-      .update({ current_balance: newBalance, updated_at: new Date().toISOString() })
+      .update({
+        current_balance: newBalance,
+        is_paid_off: isPaidOff,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', debt.id)
 
-    onUpdate(debt.id, newBalance)
+    onUpdate(debt.id, newBalance, isPaidOff)
     setInput('')
     setSaving(false)
     setSaved(true)

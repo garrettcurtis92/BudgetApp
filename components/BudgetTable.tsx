@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
-import { ChevronLeft, ChevronRight, Pencil, Check, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Check, X, RotateCcw, Search } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, formatMonthYear } from '@/lib/formatters'
 import {
@@ -45,6 +45,9 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+  const [resetConfirm, setResetConfirm] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [search, setSearch] = useState('')
 
   // Inline budget editing state
   const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null)
@@ -136,6 +139,27 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     setBudgetEditValue('')
   }
 
+  async function handleReset() {
+    if (!resetConfirm) {
+      setResetConfirm(true)
+      setTimeout(() => setResetConfirm(false), 3000)
+      return
+    }
+    setResetting(true)
+    setResetConfirm(false)
+    const supabase = createClient()
+    await Promise.all([
+      supabase.from('monthly_actuals').delete().eq('month', month).eq('year', year),
+      supabase.from('rollovers').delete().eq('month', month).eq('year', year),
+      supabase.from('budget_overrides').delete().eq('month', month).eq('year', year),
+    ])
+    setActuals(prev => prev.filter(a => !(a.month === month && a.year === year)))
+    setRollovers(prev => prev.filter(r => !(r.month === month && r.year === year)))
+    setOverrides(prev => prev.filter(o => !(o.month === month && o.year === year)))
+    setEdits({})
+    setResetting(false)
+  }
+
   const handleSave = useCallback(async () => {
     setSaving(true)
     const supabase = createClient()
@@ -214,9 +238,13 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     setTimeout(() => setSavedMsg(false), 2500)
   }, [edits, month, year, actuals, rollovers, categories])
 
+  const searchLower = search.toLowerCase()
   const grouped = GROUP_ORDER.map(group => ({
     group,
-    categories: categories.filter(c => c.group_name === group),
+    categories: categories.filter(c =>
+      c.group_name === group &&
+      (searchLower === '' || c.name.toLowerCase().includes(searchLower))
+    ),
   })).filter(g => g.categories.length > 0)
 
   const totalActualEdited = categories.reduce((sum, c) => {
@@ -330,6 +358,25 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
             <ChevronRight size={18} />
           </button>
           <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="p-2 rounded-lg transition-all duration-200 cursor-pointer disabled:opacity-60"
+            style={{
+              color: resetConfirm ? 'var(--color-red)' : 'var(--color-text-muted)',
+              backgroundColor: resetConfirm ? '#fef2f2' : 'transparent',
+              border: resetConfirm ? '1px solid var(--color-red)' : '1px solid transparent',
+            }}
+            title={resetConfirm ? 'Tap again to confirm reset' : 'Reset this month'}
+          >
+            {resetting ? (
+              <span className="text-xs font-medium px-1">…</span>
+            ) : resetConfirm ? (
+              <span className="text-xs font-semibold px-1">Sure?</span>
+            ) : (
+              <RotateCcw size={15} />
+            )}
+          </button>
+          <button
             onClick={handleSave}
             disabled={saving}
             className="px-4 py-2 rounded-lg text-sm font-semibold text-white transition-all duration-200 cursor-pointer disabled:opacity-60"
@@ -338,6 +385,25 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
             {saving ? 'Saving…' : savedMsg ? 'Saved!' : 'Save'}
           </button>
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--color-text-muted)' }} />
+        <input
+          type="text"
+          placeholder="Search categories…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full rounded-xl pl-9 pr-4 py-2.5 text-sm outline-none transition-all duration-200"
+          style={{
+            border: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-card)',
+            color: 'var(--color-text)',
+          }}
+          onFocus={e => (e.target.style.borderColor = 'var(--color-navy)')}
+          onBlur={e => (e.target.style.borderColor = 'var(--color-border)')}
+        />
       </div>
 
       {/* Budget groups */}
