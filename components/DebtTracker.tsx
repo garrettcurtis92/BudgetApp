@@ -19,13 +19,33 @@ interface Debt {
   sort_order: number
 }
 
-export default function DebtTracker({ initialDebts }: { initialDebts: Debt[] }) {
+interface PaymentLog {
+  id: string
+  debt_id: string
+  previous_balance: number
+  new_balance: number
+  created_at: string
+}
+
+export default function DebtTracker({ initialDebts, initialPaymentLog }: { initialDebts: Debt[], initialPaymentLog: PaymentLog[] }) {
   const [debts, setDebts] = useState(initialDebts)
+  const [paymentLog, setPaymentLog] = useState(initialPaymentLog)
 
   function handleUpdate(id: string, newBalance: number, isPaidOff: boolean) {
     setDebts(prev =>
       prev.map(d => d.id === id ? { ...d, current_balance: newBalance, is_paid_off: isPaidOff } : d)
     )
+  }
+
+  function handlePaymentLogged(entry: PaymentLog) {
+    setPaymentLog(prev => [entry, ...prev].slice(0, 20))
+  }
+
+  function handleUndo(entry: PaymentLog) {
+    setDebts(prev =>
+      prev.map(d => d.id === entry.debt_id ? { ...d, current_balance: entry.previous_balance, is_paid_off: false } : d)
+    )
+    setPaymentLog(prev => prev.filter(e => e.id !== entry.id))
   }
 
   const activeDebts = debts.filter(d => !d.is_paid_off).sort((a, b) => a.priority - b.priority)
@@ -104,7 +124,15 @@ export default function DebtTracker({ initialDebts }: { initialDebts: Debt[] }) 
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {activeDebts.map((debt, idx) => (
-            <DebtCard key={debt.id} debt={debt} rank={idx + 1} onUpdate={handleUpdate} />
+            <DebtCard
+              key={debt.id}
+              debt={debt}
+              rank={idx + 1}
+              recentPayments={paymentLog.filter(e => e.debt_id === debt.id).slice(0, 3)}
+              onUpdate={handleUpdate}
+              onPaymentLogged={handlePaymentLogged}
+              onUndo={handleUndo}
+            />
           ))}
         </div>
       )}

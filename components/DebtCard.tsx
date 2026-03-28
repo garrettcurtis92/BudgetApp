@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency } from '@/lib/formatters'
 import ProgressBar from './ProgressBar'
+import { X } from 'lucide-react'
 
 interface Debt {
   id: string
@@ -19,6 +20,14 @@ interface Debt {
   is_paid_off: boolean
 }
 
+interface PaymentLog {
+  id: string
+  debt_id: string
+  previous_balance: number
+  new_balance: number
+  created_at: string
+}
+
 function getPriorityLabel(rank: number): { label: string; color: string } {
   if (rank === 1) return { label: 'Pay off now', color: 'var(--color-red)' }
   if (rank === 2) return { label: 'Primary target', color: 'var(--color-amber)' }
@@ -28,15 +37,18 @@ function getPriorityLabel(rank: number): { label: string; color: string } {
 interface Props {
   debt: Debt
   rank: number
+  recentPayments: PaymentLog[]
   onUpdate: (id: string, newBalance: number, isPaidOff: boolean) => void
+  onPaymentLogged: (entry: PaymentLog) => void
+  onUndo: (entry: PaymentLog) => void
 }
 
-export default function DebtCard({ debt, rank, onUpdate }: Props) {
+export default function DebtCard({ debt, rank, recentPayments, onUpdate, onPaymentLogged, onUndo }: Props) {
   const [input, setInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [appliedBreakdown, setAppliedBreakdown] = useState<{ interest: number; principal: number } | null>(null)
+  const [undoing, setUndoing] = useState<string | null>(null)
 
   const pctPaid = Math.round(
     ((debt.original_balance - debt.current_balance) / debt.original_balance) * 100
@@ -55,11 +67,7 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
     const supabase = createClient()
     await supabase
       .from('debts')
-      .update({
-        current_balance: newBalance,
-        is_paid_off: isPaidOff,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ current_balance: newBalance, is_paid_off: isPaidOff, updated_at: new Date().toISOString() })
       .eq('id', debt.id)
 
     onUpdate(debt.id, newBalance, isPaidOff)
@@ -73,21 +81,49 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
     setApplying(true)
     const newBalance = Math.max(0, Math.round((debt.current_balance - principalPaid) * 100) / 100)
     const isPaidOff = newBalance === 0
+    const previousBalance = debt.current_balance
 
     const supabase = createClient()
-    await supabase
-      .from('debts')
-      .update({
+    const [, { data: logEntry }] = await Promise.all([
+      supabase.from('debts').update({
         current_balance: newBalance,
         is_paid_off: isPaidOff,
         updated_at: new Date().toISOString(),
-      })
-      .eq('id', debt.id)
+      }).eq('id', debt.id),
+      supabase.from('debt_payment_log').insert({
+        debt_id: debt.id,
+        previous_balance: previousBalance,
+        new_balance: newBalance,
+      }).select().single(),
+    ])
 
     onUpdate(debt.id, newBalance, isPaidOff)
+    if (logEntry) onPaymentLogged(logEntry)
     setApplying(false)
-    setAppliedBreakdown({ interest: monthlyInterest, principal: principalPaid })
-    setTimeout(() => setAppliedBreakdown(null), 4000)
+  }
+
+  async function handleUndo(entry: PaymentLog) {
+    setUndoing(entry.id)
+    const supabase = createClient()
+    await Promise.all([
+      supabase.from('debts').update({
+        current_balance: entry.previous_balance,
+        is_paid_off: false,
+        updated_at: new Date().toISOString(),
+      }).eq('id', debt.id),
+      supabase.from('debt_payment_log').delete().eq('id', entry.id),
+    ])
+    onUndo(entry)
+    setUndoing(null)
+  }
+
+  function formatTime(iso: string): string {
+    const d = new Date(iso)
+    const now = new Date()
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    }
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 
   return (
@@ -146,44 +182,53 @@ export default function DebtCard({ debt, rank, onUpdate }: Props) {
           { label: 'Total payment', value: formatCurrency(totalPayment) },
           { label: 'To principal', value: formatCurrency(principalPaid) },
         ].map(({ label, value }) => (
-          <div
-            key={label}
-            className="rounded-lg p-3 text-center"
-            style={{ backgroundColor: '#f5f5f3' }}
-          >
+          <div key={label} className="rounded-lg p-3 text-center" style={{ backgroundColor: '#f5f5f3' }}>
             <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>{value}</p>
             <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{label}</p>
           </div>
         ))}
       </div>
 
-      {/* Apply payment feedback */}
-      {appliedBreakdown && (
-        <div
-          className="rounded-lg px-3 py-2 text-xs flex gap-3"
-          style={{ backgroundColor: '#f0faf5', color: 'var(--color-green)' }}
-        >
-          <span>Payment applied</span>
-          <span style={{ color: 'var(--color-text-muted)' }}>
-            {formatCurrency(appliedBreakdown.interest)} interest · {formatCurrency(appliedBreakdown.principal)} principal
-          </span>
-        </div>
-      )}
-
       {/* Apply payment button */}
       <button
         onClick={handleApplyPayment}
         disabled={applying || totalPayment === 0}
         className="w-full py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 cursor-pointer disabled:opacity-50"
-        style={{
-          backgroundColor: '#eef4fb',
-          color: 'var(--color-navy)',
-        }}
+        style={{ backgroundColor: '#eef4fb', color: 'var(--color-navy)' }}
       >
         {applying ? 'Applying…' : `Apply payment (${formatCurrency(totalPayment)})`}
       </button>
 
-      {/* Manual balance update */}
+      {/* Payment history + undo */}
+      {recentPayments.length > 0 && (
+        <div className="flex flex-col gap-1">
+          {recentPayments.map(entry => (
+            <div
+              key={entry.id}
+              className="flex items-center justify-between rounded-lg px-3 py-2 text-xs"
+              style={{ backgroundColor: '#f5f5f3' }}
+            >
+              <span style={{ color: 'var(--color-text-muted)' }}>
+                {formatCurrency(entry.previous_balance)} → {formatCurrency(entry.new_balance)}
+              </span>
+              <div className="flex items-center gap-2">
+                <span style={{ color: 'var(--color-text-muted)' }}>{formatTime(entry.created_at)}</span>
+                <button
+                  onClick={() => handleUndo(entry)}
+                  disabled={undoing === entry.id}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded font-medium cursor-pointer transition-all duration-200 disabled:opacity-50"
+                  style={{ color: 'var(--color-red)', backgroundColor: '#fef2f2' }}
+                >
+                  <X size={11} />
+                  {undoing === entry.id ? '…' : 'Undo'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Manual balance override */}
       <div className="flex gap-2">
         <input
           type="number"
