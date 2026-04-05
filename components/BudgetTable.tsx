@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
-import { ChevronLeft, ChevronRight, Pencil, Check, X, RotateCcw, Search } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Pencil, Check, X, RotateCcw, Search, Trash2, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, formatMonthYear } from '@/lib/formatters'
 import {
@@ -56,6 +56,15 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
 
   // Autofill flash feedback
   const [autofilledId, setAutofilledId] = useState<string | null>(null)
+
+  // Add / remove category
+  const [addingCategory, setAddingCategory] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newGroup, setNewGroup] = useState('Fixed Expenses')
+  const [newAmount, setNewAmount] = useState('')
+  const [newIsVariable, setNewIsVariable] = useState(false)
+  const [addingSaving, setAddingSaving] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
 
   function prevMonth() {
     if (month === 1) { setMonth(12); setYear(y => y - 1) }
@@ -137,6 +146,44 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
   function cancelBudgetEdit() {
     setEditingBudgetId(null)
     setBudgetEditValue('')
+  }
+
+  async function handleAddCategory() {
+    const amount = parseFloat(newAmount)
+    if (!newName.trim() || isNaN(amount) || amount < 0) return
+    setAddingSaving(true)
+    const supabase = createClient()
+    const maxSort = Math.max(...categories.map(c => c.sort_order), 0)
+    const { data } = await supabase
+      .from('budget_categories')
+      .insert({
+        name: newName.trim(),
+        group_name: newGroup,
+        budgeted_amount: amount,
+        is_variable: newIsVariable,
+        sort_order: maxSort + 1,
+        is_active: true,
+      })
+      .select()
+      .single()
+    if (data) setCategories(prev => [...prev, data])
+    setNewName('')
+    setNewAmount('')
+    setNewIsVariable(false)
+    setAddingCategory(false)
+    setAddingSaving(false)
+  }
+
+  async function handleRemoveCategory(id: string) {
+    if (removingId !== id) {
+      setRemovingId(id)
+      setTimeout(() => setRemovingId(null), 3000)
+      return
+    }
+    const supabase = createClient()
+    await supabase.from('budget_categories').update({ is_active: false }).eq('id', id)
+    setCategories(prev => prev.filter(c => c.id !== id))
+    setRemovingId(null)
   }
 
   async function handleReset() {
@@ -329,12 +376,23 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
     <div className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
-        <h2
-          className="text-2xl"
-          style={{ fontFamily: 'var(--font-dm-serif), serif', color: 'var(--color-text)' }}
-        >
-          Budget
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2
+            className="text-2xl"
+            style={{ fontFamily: 'var(--font-dm-serif), serif', color: 'var(--color-text)' }}
+          >
+            Budget
+          </h2>
+          <button
+            onClick={() => setAddingCategory(true)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150"
+            style={{ color: 'var(--color-text-muted)', backgroundColor: '#f5f5f3' }}
+            title="Add expense"
+          >
+            <Plus size={12} />
+            Add
+          </button>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={prevMonth}
@@ -452,11 +510,24 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
                       <span className="text-sm font-medium" style={{ color: 'var(--color-text)' }}>
                         {cat.name}
                       </span>
-                      {cat.is_variable && (
-                        <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style={{ backgroundColor: '#eef4fb', color: 'var(--color-navy)' }}>
-                          rolls over
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {cat.is_variable && (
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#eef4fb', color: 'var(--color-navy)' }}>
+                            rolls over
+                          </span>
+                        )}
+                        <button
+                          onClick={() => handleRemoveCategory(cat.id)}
+                          className="p-1 rounded cursor-pointer transition-all duration-150"
+                          style={{
+                            color: removingId === cat.id ? 'var(--color-red)' : 'var(--color-text-muted)',
+                            backgroundColor: removingId === cat.id ? '#fef2f2' : 'transparent',
+                          }}
+                          title={removingId === cat.id ? 'Tap again to remove' : 'Remove category'}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-start gap-3">
                       {/* Budget amount — tap to autofill */}
@@ -499,9 +570,21 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
                   </div>
 
                   {/* Desktop layout */}
-                  <div className="hidden md:grid grid-cols-12 px-4 py-3 items-center">
-                    <div className="col-span-5">
+                  <div className="hidden md:grid grid-cols-12 px-4 py-3 items-center group">
+                    <div className="col-span-5 flex items-center gap-2">
                       <span className="text-sm" style={{ color: 'var(--color-text)' }}>{cat.name}</span>
+                      <button
+                        onClick={() => handleRemoveCategory(cat.id)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded cursor-pointer"
+                        style={{
+                          color: removingId === cat.id ? 'var(--color-red)' : 'var(--color-text-muted)',
+                          backgroundColor: removingId === cat.id ? '#fef2f2' : 'transparent',
+                          opacity: removingId === cat.id ? 1 : undefined,
+                        }}
+                        title={removingId === cat.id ? 'Click again to remove' : 'Remove category'}
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                     <div className="col-span-3">
                       <BudgetAmount cat={cat} />
@@ -540,6 +623,87 @@ export default function BudgetTable({ initialCategories, initialActuals, initial
           </div>
         </div>
       ))}
+
+      {/* Add expense */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-card)' }}
+      >
+        {!addingCategory ? (
+          <button
+            onClick={() => setAddingCategory(true)}
+            className="w-full flex items-center gap-2 px-5 py-3.5 text-sm cursor-pointer transition-all duration-150"
+            style={{ color: 'var(--color-text-muted)' }}
+            onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#f5f5f3')}
+            onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            <Plus size={15} />
+            Add expense
+          </button>
+        ) : (
+          <div className="px-5 py-4 flex flex-col gap-3">
+            <p className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>New expense</p>
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                placeholder="Name"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                autoFocus
+                className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                style={{ border: '1px solid var(--color-navy)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+              />
+              <div className="flex gap-2">
+                <select
+                  value={newGroup}
+                  onChange={e => setNewGroup(e.target.value)}
+                  className="flex-1 rounded-lg px-3 py-2 text-sm outline-none cursor-pointer"
+                  style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+                >
+                  {GROUP_ORDER.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  placeholder="Amount"
+                  value={newAmount}
+                  onChange={e => setNewAmount(e.target.value)}
+                  className="w-32 rounded-lg px-3 py-2 text-sm outline-none"
+                  style={{ border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)', color: 'var(--color-text)' }}
+                  onFocus={e => (e.target.style.borderColor = 'var(--color-navy)')}
+                  onBlur={e => (e.target.style.borderColor = 'var(--color-border)')}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--color-text-muted)' }}>
+                <input
+                  type="checkbox"
+                  checked={newIsVariable}
+                  onChange={e => setNewIsVariable(e.target.checked)}
+                  className="cursor-pointer"
+                />
+                Variable (rolls over each month)
+              </label>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={handleAddCategory}
+                disabled={addingSaving || !newName.trim() || !newAmount}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
+                style={{ backgroundColor: 'var(--color-green)' }}
+              >
+                {addingSaving ? '…' : 'Add'}
+              </button>
+              <button
+                onClick={() => { setAddingCategory(false); setNewName(''); setNewAmount('') }}
+                className="px-4 py-2 rounded-lg text-sm cursor-pointer"
+                style={{ color: 'var(--color-text-muted)', backgroundColor: '#f5f5f3' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Month Summary */}
       <div

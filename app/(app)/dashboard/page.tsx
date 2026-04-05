@@ -1,5 +1,8 @@
 import { createClient } from '@/lib/supabase-server'
 import MetricCard from '@/components/MetricCard'
+import IncomeDashboardSection from '@/components/IncomeDashboardSection'
+import ComingUpWidget from '@/components/ComingUpWidget'
+import PayQueueWidget from '@/components/PayQueueWidget'
 import { formatCurrency } from '@/lib/formatters'
 
 const INCOME = {
@@ -15,12 +18,18 @@ export default async function DashboardPage() {
   const month = now.getMonth() + 1
   const year = now.getFullYear()
 
-  const [{ data: categories }, { data: actuals }, { data: debts }, { data: goals }] =
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`
+  const monthEnd = month === 12
+    ? `${year + 1}-01-01`
+    : `${year}-${String(month + 1).padStart(2, '0')}-01`
+
+  const [{ data: categories }, { data: actuals }, { data: debts }, { data: goals }, { data: incomeEntries }] =
     await Promise.all([
       supabase.from('budget_categories').select('*').eq('is_active', true),
       supabase.from('monthly_actuals').select('*').eq('month', month).eq('year', year),
       supabase.from('debts').select('*').eq('is_paid_off', false),
       supabase.from('savings_goals').select('*').order('sort_order'),
+      supabase.from('income_log').select('*').gte('paid_on', monthStart).lt('paid_on', monthEnd).order('paid_on', { ascending: false }),
     ])
 
   const totalBudgeted = (categories ?? []).reduce(
@@ -31,7 +40,6 @@ export default async function DashboardPage() {
     (sum: number, a: { actual_amount: number }) => sum + Number(a.actual_amount),
     0
   )
-  const buffer = INCOME.total - totalBudgeted
 
   const totalDebt = (debts ?? []).reduce(
     (sum: number, d: { current_balance: number }) => sum + Number(d.current_balance),
@@ -61,6 +69,7 @@ export default async function DashboardPage() {
     .reduce((sum: number, c: { budgeted_amount: number }) => sum + Number(c.budgeted_amount), 0)
 
   const netRemaining = INCOME.total - totalActual
+  const receivedIncome = (incomeEntries ?? []).reduce((sum: number, e: { amount: number }) => sum + Number(e.amount), 0)
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
@@ -71,26 +80,13 @@ export default async function DashboardPage() {
         Dashboard
       </h2>
 
-      {/* Summary metric cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MetricCard
-          label="Monthly Take-Home"
-          value={formatCurrency(INCOME.total)}
-          sublabel="W2 + VA disability"
-          valueColor="var(--color-green)"
-        />
-        <MetricCard
-          label="Total Budgeted"
-          value={formatCurrency(totalBudgeted)}
-          sublabel="Bills + debt + savings"
-        />
-        <MetricCard
-          label="Remaining Buffer"
-          value={formatCurrency(buffer)}
-          sublabel="Available to allocate"
-          valueColor={buffer >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-        />
-      </div>
+      <IncomeDashboardSection
+        initialEntries={incomeEntries ?? []}
+        month={month}
+        year={year}
+        expectedTotal={INCOME.total}
+        totalBudgeted={totalBudgeted}
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Income Breakdown */}
@@ -163,6 +159,17 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <ComingUpWidget categories={categories ?? []} today={now} />
+
+      <PayQueueWidget
+        categories={categories ?? []}
+        initialActuals={actuals ?? []}
+        initialDebts={debts ?? []}
+        receivedIncome={receivedIncome}
+        month={month}
+        year={year}
+      />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
